@@ -1,0 +1,7 @@
+.venv/
+datasets/
+docs/
+tests/
+*.ipynb
+__pycache__/
+.git/

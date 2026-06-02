@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>OOD Records</title>
+	<style>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 2rem; }
+		h1 { margin-bottom: 0.5rem; }
+		.subtitle { color: #64748b; margin-bottom: 1.5rem; font-size: 0.9rem; }
+		nav { display: flex; gap: 1rem; margin-bottom: 2rem; }
+		nav a {
+			padding: 0.5rem 1rem; background: #2563eb; color: white;
+			text-decoration: none; border-radius: 6px; font-size: 0.9rem;
+		}
+		nav a:hover { background: #1d4ed8; }
+		nav a.current { background: #1e40af; }
+		table {
+			width: 100%; border-collapse: collapse; background: white;
+			border-radius: 8px; overflow: hidden;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+		}
+		th { background: #f8fafc; text-align: left; font-size: 0.8rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+		th, td { padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; }
+		td { font-size: 0.9rem; }
+		td img { width: 48px; height: 48px; image-rendering: pixelated; border: 1px solid #e2e8f0; border-radius: 4px; vertical-align: middle; }
+		tr:last-child td { border-bottom: none; }
+		tr:hover td { background: #f8fafc; }
+		.badge {
+			display: inline-block; padding: 0.15rem 0.5rem; border-radius: 9999px;
+			font-size: 0.75rem; font-weight: 600;
+		}
+		.badge-pending { background: #fef3c7; color: #92400e; }
+		.badge-correct { background: #d1fae5; color: #065f46; }
+		.badge-discard { background: #fee2e2; color: #991b1b; }
+		.badge-new_class { background: #dbeafe; color: #1e40af; }
+		.pagination { display: flex; gap: 0.5rem; margin-top: 1rem; align-items: center; }
+		.pagination a {
+			padding: 0.4rem 0.8rem; background: #2563eb; color: white;
+			text-decoration: none; border-radius: 4px; font-size: 0.85rem;
+		}
+		.pagination a.disabled { background: #94a3b8; pointer-events: none; }
+		.pagination span { color: #64748b; font-size: 0.85rem; }
+		.empty { color: #666; font-style: italic; margin-top: 2rem; }
+	</style>
+</head>
+<body>
+	<h1>OOD Records</h1>
+	<p class="subtitle">{{ total }} total records</p>
+
+	<nav>
+		<a href="/">Dashboard</a>
+		<a href="/ood/review">OOD Review</a>
+		<a href="/ood/records" class="current">OOD Records</a>
+	</nav>
+
+	{% if not items %}
+	<p class="empty">No OOD records found.</p>
+	{% else %}
+	<table>
+		<thead>
+			<tr>
+				<th>Image</th>
+				<th>Predicted</th>
+				<th>Confidence</th>
+				<th>Energy</th>
+				<th>True Label</th>
+				<th>Action</th>
+				<th>Status</th>
+				<th>Created</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for item in items %}
+			<tr>
+				<td><img src="{{ item.image_url }}" alt="OOD"></td>
+				<td>{{ item.predicted_label }}</td>
+				<td>{{ "%.1f"|format(item.confidence * 100) }}%</td>
+				<td>{{ "%.4f"|format(item.energy_score) }}</td>
+				<td>{{ item.true_label or "—" }}</td>
+				<td>
+					{% if item.action == "pending" %}
+						<span class="badge badge-pending">pending</span>
+					{% elif item.action == "correct" %}
+						<span class="badge badge-correct">correct</span>
+					{% elif item.action == "discard" %}
+						<span class="badge badge-discard">discard</span>
+					{% elif item.action == "new_class" %}
+						<span class="badge badge-new_class">new class</span>
+					{% endif %}
+				</td>
+				<td>{{ "reviewed" if item.reviewed else "pending" }}</td>
+				<td>{{ item.created_at.strftime("%Y-%m-%d %H:%M") if item.created_at else "—" }}</td>
+			</tr>
+			{% endfor %}
+		</tbody>
+	</table>
+
+	<div class="pagination">
+		{% if offset > 0 %}
+			<a href="/ood/records?limit={{ limit }}&offset={{ [offset - limit, 0]|max }}">Previous</a>
+		{% else %}
+			<a class="disabled">Previous</a>
+		{% endif %}
+		<span>Showing {{ offset + 1 }}–{{ [offset + items|length, total]|min }} of {{ total }}</span>
+		{% if offset + limit < total %}
+			<a href="/ood/records?limit={{ limit }}&offset={{ offset + limit }}">Next</a>
+		{% else %}
+			<a class="disabled">Next</a>
+		{% endif %}
+	</div>
+	{% endif %}
+</body>
+</html>

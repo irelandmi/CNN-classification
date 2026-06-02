@@ -1,9 +1,12 @@
+import os
 import pickle
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from torchvision import transforms
+import mlflow
 
 
 def unpickle(file):
@@ -11,7 +14,7 @@ def unpickle(file):
 		return pickle.load(fo, encoding='bytes')
 
 
-def load_cifar10(data_dir='datasets/cifar-10-batches-py'):
+def load_cifar10(data_dir=os.path.join(os.path.dirname(__file__), '..', 'datasets', 'cifar-10-batches-py')):
 	"""Load all CIFAR-10 batches and return train/test tensors."""
 	# Load training data
 	train_data = []
@@ -78,34 +81,49 @@ def accuracy(outputs, labels):
 
 
 class Cifar10CnnModel(nn.Module):
-	def __init__(self):
+	def __init__(self, dropout=0.3):
 		super().__init__()
 		self.network = nn.Sequential(
 			nn.Conv2d(3, 32, kernel_size=3, padding=1),
+			nn.BatchNorm2d(32),
 			nn.ReLU(),
 			nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+			nn.BatchNorm2d(64),
 			nn.ReLU(),
-			nn.MaxPool2d(2, 2),  # 64 x 16 x 16
+			nn.MaxPool2d(2, 2),
+			nn.Dropout2d(dropout),
 
 			nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+			nn.BatchNorm2d(128),
 			nn.ReLU(),
 			nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+			nn.BatchNorm2d(128),
 			nn.ReLU(),
-			nn.MaxPool2d(2, 2),  # 128 x 8 x 8
+			nn.MaxPool2d(2, 2),
+			nn.Dropout2d(dropout),
 
 			nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=1),
+			nn.BatchNorm2d(256),
 			nn.ReLU(),
 			nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1),
+			nn.BatchNorm2d(256),
 			nn.ReLU(),
-			nn.MaxPool2d(2, 2),  # 256 x 4 x 4
+			nn.MaxPool2d(2, 2),
+			nn.Dropout2d(dropout),
 
 			nn.Flatten(),
 			nn.Linear(256 * 4 * 4, 1024),
 			nn.ReLU(),
+			nn.Dropout(dropout),
 			nn.Linear(1024, 512),
 			nn.ReLU(),
+			nn.Dropout(dropout),
 			nn.Linear(512, 10),
 		)
+
+	def features(self, xb):
+		# Everything except the last Linear layer
+		return self.network[:-1](xb)
 
 	def forward(self, xb):
 		return self.network(xb)
@@ -128,14 +146,22 @@ def evaluate(model, val_loader):
 	return {'val_loss': epoch_loss.item(), 'val_acc': epoch_acc.item()}
 
 
+# TODO: these transforms work on tensors but are designed for PIL images — consider using v2 transforms
+train_augment = transforms.Compose([
+	transforms.RandomCrop(32, padding=4),
+	transforms.RandomHorizontalFlip(),
+])
+
+
 def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.Adam):
 	history = []
-	optimizer = opt_func(model.parameters(), lr)
+	optimizer = opt_func(model.parameters(), lr, weight_decay=1e-4)
 	for epoch in range(epochs):
 		model.train()
 		train_losses = []
 		for batch in train_loader:
 			images, labels = batch
+			images = train_augment(images)
 			out = model(images)
 			loss = F.cross_entropy(out, labels)
 			train_losses.append(loss)
@@ -145,6 +171,11 @@ def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.Adam):
 
 		result = evaluate(model, val_loader)
 		result['train_loss'] = torch.stack(train_losses).mean().item()
+		mlflow.log_metrics({
+			"train_loss": result['train_loss'],
+			"val_loss": result['val_loss'],
+			"val_acc": result['val_acc'],
+		}, step=epoch)
 		print("Epoch [{}/{}], train_loss: {:.4f}, val_loss: {:.4f}, val_acc: {:.4f}".format(
 			epoch + 1, epochs, result['train_loss'], result['val_loss'], result['val_acc']))
 		history.append(result)
@@ -154,49 +185,73 @@ def fit(epochs, lr, model, train_loader, val_loader, opt_func=torch.optim.Adam):
 def main():
 	# Hyperparameters
 	batch_size = 128
-	num_epochs = 10
+	num_epochs = 30
 	lr = 0.001
 	val_size = 5000
+	dropout = 0.3
+	weight_decay = 1e-4
 
-	# Load data
-	print("Loading CIFAR-10 dataset...")
-	train_data, train_labels, test_data, test_labels = load_cifar10()
+	mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5050"))
+	mlflow.set_experiment("cifar10-cnn")
 
-	# Split into train/val
-	full_dataset = TensorDataset(train_data, train_labels)
-	train_size = len(full_dataset) - val_size
-	torch.manual_seed(42)
-	train_ds, val_ds = random_split(full_dataset, [train_size, val_size])
-	test_ds = TensorDataset(test_data, test_labels)
+	with mlflow.start_run():
+		mlflow.log_params({
+			"batch_size": batch_size,
+			"num_epochs": num_epochs,
+			"learning_rate": lr,
+			"val_size": val_size,
+			"optimizer": "Adam",
+			"dropout": dropout,
+			"weight_decay": weight_decay,
+			"augmentation": "random_crop+horizontal_flip",
+		})
 
-	# Create data loaders
-	train_dl = DataLoader(train_ds, batch_size, shuffle=True)
-	val_dl = DataLoader(val_ds, batch_size * 2)
-	test_dl = DataLoader(test_ds, batch_size * 2)
+		# Load data
+		print("Loading CIFAR-10 dataset...")
+		train_data, train_labels, test_data, test_labels = load_cifar10()
 
-	# Setup device
-	device = get_default_device()
-	print(f"Using device: {device}")
-	train_dl = DeviceDataLoader(train_dl, device)
-	val_dl = DeviceDataLoader(val_dl, device)
-	test_dl = DeviceDataLoader(test_dl, device)
+		# Split into train/val
+		full_dataset = TensorDataset(train_data, train_labels)
+		train_size = len(full_dataset) - val_size
+		torch.manual_seed(42)
+		train_ds, val_ds = random_split(full_dataset, [train_size, val_size])
+		test_ds = TensorDataset(test_data, test_labels)
 
-	# Create model
-	model = to_device(Cifar10CnnModel(), device)
+		# Create data loaders
+		train_dl = DataLoader(train_ds, batch_size, shuffle=True)
+		val_dl = DataLoader(val_ds, batch_size * 2)
+		test_dl = DataLoader(test_ds, batch_size * 2)
 
-	# Evaluate before training
-	print("Initial validation:", evaluate(model, val_dl))
+		# Setup device
+		device = get_default_device()
+		print(f"Using device: {device}")
+		mlflow.log_param("device", str(device))
+		train_dl = DeviceDataLoader(train_dl, device)
+		val_dl = DeviceDataLoader(val_dl, device)
+		test_dl = DeviceDataLoader(test_dl, device)
 
-	# Train
-	print(f"\nTraining for {num_epochs} epochs...")
-	history = fit(num_epochs, lr, model, train_dl, val_dl)
+		# Create model
+		model = to_device(Cifar10CnnModel(), device)
 
-	# Test
-	print("\nTest set evaluation:", evaluate(model, test_dl))
+		# Evaluate before training
+		print("Initial validation:", evaluate(model, val_dl))
 
-	# Save model
-	torch.save(model.state_dict(), 'cifar10-cnn.pth')
-	print("Model saved to cifar10-cnn.pth")
+		# Train
+		print(f"\nTraining for {num_epochs} epochs...")
+		history = fit(num_epochs, lr, model, train_dl, val_dl)
+
+		# Test
+		test_result = evaluate(model, test_dl)
+		mlflow.log_metrics({
+			"test_loss": test_result['val_loss'],
+			"test_acc": test_result['val_acc'],
+		})
+		print("\nTest set evaluation:", test_result)
+
+		# Save and log model
+		torch.save(model.state_dict(), 'cifar10-cnn.pth')
+		mlflow.log_artifact('cifar10-cnn.pth')
+		print("Model saved to cifar10-cnn.pth")
 
 	return history
 

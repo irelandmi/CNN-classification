@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>OOD Review</title>
+	<style>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 2rem; }
+		h1 { margin-bottom: 1rem; }
+		.empty { color: #666; font-style: italic; margin-top: 2rem; }
+		.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+		.card {
+			background: white; border-radius: 8px; padding: 1rem;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+		}
+		.card img { width: 128px; height: 128px; image-rendering: pixelated; border: 1px solid #ddd; }
+		.meta { font-size: 0.85rem; color: #555; margin: 0.5rem 0; }
+		.meta span { display: block; }
+		.form-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+		.form-row input { flex: 1; padding: 0.4rem; border: 1px solid #ccc; border-radius: 4px; }
+		.form-row select, .form-row button {
+			padding: 0.4rem 0.8rem; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;
+		}
+		button { background: #2563eb; color: white; border: none; }
+		button:hover { background: #1d4ed8; }
+		.status { margin-top: 0.5rem; font-size: 0.85rem; }
+		.success { color: #16a34a; }
+		.error { color: #dc2626; }
+		nav { display: flex; gap: 1rem; margin-bottom: 2rem; }
+		nav a {
+			padding: 0.5rem 1rem; background: #2563eb; color: white;
+			text-decoration: none; border-radius: 6px; font-size: 0.9rem;
+		}
+		nav a:hover { background: #1d4ed8; }
+		nav a.current { background: #1e40af; }
+		.top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+		.export-btn { padding: 0.5rem 1rem; font-size: 1rem; }
+		.pagination { display: flex; gap: 0.5rem; margin-top: 1rem; align-items: center; }
+		.pagination a {
+			padding: 0.4rem 0.8rem; background: #2563eb; color: white;
+			text-decoration: none; border-radius: 4px; font-size: 0.85rem;
+		}
+		.pagination a:hover { background: #1d4ed8; }
+		.pagination span { color: #64748b; font-size: 0.85rem; }
+	</style>
+</head>
+<body>
+	<nav>
+		<a href="/">Dashboard</a>
+		<a href="/ood/review" class="current">OOD Review</a>
+		<a href="/ood/records">OOD Records</a>
+	</nav>
+
+	<div class="top-bar">
+		<h1>OOD Review ({{ total }} pending)</h1>
+		<button class="export-btn" onclick="exportToLakeFS()">Export to lakeFS</button>
+	</div>
+
+	{% if not items %}
+	<p class="empty">No pending OOD items to review.</p>
+	{% else %}
+	<div class="grid">
+		{% for item in items %}
+		<div class="card" id="card-{{ item.job_id }}">
+			<img src="{{ item.image_url }}" alt="OOD image">
+			<div class="meta">
+				<span><strong>Predicted:</strong> {{ item.predicted_label }} ({{ "%.1f"|format(item.confidence * 100) }}%)</span>
+				<span><strong>Energy:</strong> {{ "%.4f"|format(item.energy_score) }}</span>
+				<span><strong>Job:</strong> {{ item.job_id|truncate(12) }}</span>
+			</div>
+			<div class="form-row">
+				<input type="text" id="label-{{ item.job_id }}" placeholder="True label">
+				<select id="action-{{ item.job_id }}">
+					<option value="correct">Correct</option>
+					<option value="discard">Discard</option>
+					<option value="new_class">New class</option>
+				</select>
+				<button onclick="submitLabel('{{ item.job_id }}')">Submit</button>
+			</div>
+			<div class="status" id="status-{{ item.job_id }}"></div>
+		</div>
+		{% endfor %}
+	</div>
+	{% endif %}
+
+	<div class="pagination">
+		{% if offset > 0 %}
+			<a href="/ood/review?limit={{ limit }}&offset={{ [offset - limit, 0]|max }}">Previous</a>
+		{% endif %}
+		<span>Showing {{ offset + 1 }}–{{ [offset + items|length, total]|min }} of {{ total }}</span>
+		{% if offset + limit < total %}
+			<a href="/ood/review?limit={{ limit }}&offset={{ offset + limit }}">Next</a>
+		{% endif %}
+	</div>
+
+	<script>
+		async function submitLabel(jobId) {
+			const label = document.getElementById(`label-${jobId}`).value;
+			const action = document.getElementById(`action-${jobId}`).value;
+			const statusEl = document.getElementById(`status-${jobId}`);
+
+			if (!label) { statusEl.textContent = "Enter a label"; statusEl.className = "status error"; return; }
+
+			const res = await fetch(`/ood/${jobId}/label`, {
+				method: "POST",
+				headers: {"Content-Type": "application/json"},
+				body: JSON.stringify({true_label: label, action: action}),
+			});
+
+			if (res.ok) {
+				statusEl.textContent = "Labeled!";
+				statusEl.className = "status success";
+				document.getElementById(`card-${jobId}`).style.opacity = "0.5";
+			} else {
+				statusEl.textContent = "Error labeling";
+				statusEl.className = "status error";
+			}
+		}
+
+		async function exportToLakeFS() {
+			const btn = document.querySelector(".export-btn");
+			btn.disabled = true;
+			btn.textContent = "Exporting...";
+
+			const res = await fetch("/ood/export", {method: "POST"});
+			if (res.ok) {
+				const data = await res.json();
+				btn.textContent = `Exported ${data.items_exported} items to ${data.branch}`;
+			} else {
+				btn.textContent = "Export failed";
+				btn.disabled = false;
+			}
+		}
+	</script>
+</body>
+</html>

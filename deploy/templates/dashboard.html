@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>CIFAR-10 Inference Dashboard</title>
+	<style>
+		* { box-sizing: border-box; margin: 0; padding: 0; }
+		body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 2rem; }
+		h1 { margin-bottom: 1.5rem; }
+		nav { display: flex; gap: 1rem; margin-bottom: 2rem; }
+		nav a {
+			padding: 0.5rem 1rem; background: #2563eb; color: white;
+			text-decoration: none; border-radius: 6px; font-size: 0.9rem;
+		}
+		nav a:hover { background: #1d4ed8; }
+		nav a.current { background: #1e40af; }
+		.stats-grid {
+			display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 1rem; margin-bottom: 2rem;
+		}
+		.stat-card {
+			background: white; border-radius: 8px; padding: 1.5rem;
+			box-shadow: 0 1px 3px rgba(0,0,0,0.12); text-align: center;
+		}
+		.stat-card .value { font-size: 2.5rem; font-weight: 700; color: #1e293b; }
+		.stat-card .label { font-size: 0.85rem; color: #64748b; margin-top: 0.25rem; }
+		.stat-card.ood .value { color: #dc2626; }
+		.stat-card.pending .value { color: #f59e0b; }
+		.stat-card.reviewed .value { color: #16a34a; }
+		.stat-card.queue .value { color: #2563eb; }
+		.actions { display: flex; gap: 1rem; }
+		.actions button {
+			padding: 0.5rem 1rem; border: none; border-radius: 6px;
+			cursor: pointer; font-size: 0.9rem;
+		}
+		.btn-danger { background: #dc2626; color: white; }
+		.btn-danger:hover { background: #b91c1c; }
+		.refresh-note { color: #94a3b8; font-size: 0.8rem; margin-top: 1rem; }
+	</style>
+</head>
+<body>
+	<h1>CIFAR-10 Inference Dashboard</h1>
+
+	<nav>
+		<a href="/" class="current">Dashboard</a>
+		<a href="/ood/review">OOD Review</a>
+		<a href="/ood/records">OOD Records</a>
+	</nav>
+
+	<div class="stats-grid">
+		<div class="stat-card">
+			<div class="value" id="total">{{ total_inferences }}</div>
+			<div class="label">Total Inferences</div>
+		</div>
+		<div class="stat-card queue">
+			<div class="value" id="queue">{{ queue_depth }}</div>
+			<div class="label">Queue Depth</div>
+		</div>
+		<div class="stat-card ood">
+			<div class="value" id="ood">{{ ood_count }}</div>
+			<div class="label">OOD Detections</div>
+		</div>
+		<div class="stat-card pending">
+			<div class="value" id="pending">{{ ood_pending }}</div>
+			<div class="label">Pending Review</div>
+		</div>
+		<div class="stat-card reviewed">
+			<div class="value" id="reviewed">{{ ood_reviewed }}</div>
+			<div class="label">Reviewed</div>
+		</div>
+	</div>
+
+	<div class="actions">
+		<button class="btn-danger" onclick="resetAll()">Reset All Data</button>
+	</div>
+
+	<p class="refresh-note">Stats auto-refresh every 3 seconds.</p>
+
+	<script>
+		async function refreshStats() {
+			const res = await fetch("/stats");
+			if (!res.ok) return;
+			const s = await res.json();
+			document.getElementById("total").textContent = s.total_inferences;
+			document.getElementById("queue").textContent = s.queue_depth;
+			document.getElementById("ood").textContent = s.ood_count;
+			document.getElementById("pending").textContent = s.ood_pending_review;
+			document.getElementById("reviewed").textContent = s.ood_count - s.ood_pending_review;
+		}
+		setInterval(refreshStats, 3000);
+
+		async function resetAll() {
+			if (!confirm("This will delete all inference data, OOD records, and images. Continue?")) return;
+			const res = await fetch("/reset", {method: "POST"});
+			if (res.ok) {
+				refreshStats();
+			} else {
+				alert("Reset failed");
+			}
+		}
+	</script>
+</body>
+</html>

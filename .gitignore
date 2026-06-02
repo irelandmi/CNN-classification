@@ -1,5 +1,7 @@
 __pycache__/
 *.pth
-# datasets/
+datasets/
 .venv/
 uv.lock
+.env
+developer-notes.md
