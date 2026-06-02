@@ -1,6 +1,6 @@
 # CNN-Classification
 
-CIFAR-10 image classifier with an end-to-end MLOps pipeline: training on a DGX node, out-of-distribution (OOD) detection via energy scoring, and a queue-based inference API with a human-in-the-loop feedback system.
+CIFAR-10 image classifier with an end-to-end MLOps pipeline: training on a DGX Spark, out-of-distribution (OOD) detection via energy scoring, and a queue-based inference API with a human-in-the-loop feedback system.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ tests/           – Smoke tests and infra validation
 
 ## How It Works
 
-1. **Training** – Fetches CIFAR-10 from lakeFS, trains the CNN on a DGX node, logs metrics to MLflow.
+1. **Training** – Fetches CIFAR-10 from lakeFS, trains the CNN on a DGX Spark, logs metrics to MLflow.
 2. **OOD Detection** – Uses energy-based scoring on logits. Images above the calibrated threshold are flagged as out-of-distribution.
 3. **Inference** – API accepts images (upload or base64), pushes to a Redis queue. A worker processes jobs, runs inference, and stores results.
 4. **Feedback Loop** – OOD images are stored in MinIO. A review UI lets humans label them. Reviewed samples are exported to a lakeFS branch for retraining.
